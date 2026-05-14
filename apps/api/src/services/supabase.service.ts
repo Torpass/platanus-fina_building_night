@@ -126,7 +126,7 @@ export async function listPosts(filters?: {
   urgency_level?: string;
   trending?: boolean;
 }) {
-  let query = supabase.from("posts").select("*");
+  let query = supabase.from("posts").select("*, profile:profiles(*)");
 
   if (filters?.profile_id) {
     query = query.eq("profile_id", filters.profile_id);
@@ -151,28 +151,57 @@ export async function listPosts(filters?: {
   return (data || []) as Post[];
 }
 
-export async function getTrendingPosts(limit = 20) {
+export async function getTrendingPosts(limit = 50) {
   const { data, error } = await supabase
     .from("posts")
-    .select("*")
-    .order("engagement_score", { ascending: false })
+    .select("*, profile:profiles(*)")
+    .not("destination", "is", null)
+    .order("engagement_score", { ascending: false, nullsFirst: false })
     .limit(limit);
   if (error) throw error;
   return (data || []) as Post[];
 }
 
-export async function getUrgentPosts() {
-  const sevenDaysFromNow = new Date();
-  sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
-  const dateStr = sevenDaysFromNow.toISOString().split("T")[0];
+/**
+ * Devuelve posts urgentes "todavía explotables":
+ *   - offer_expiry_date está entre HOY y HOY + windowDays (no expirados)
+ *   - OR urgency_level = "high" sin fecha de expiración (offer_expiry_date NULL)
+ *
+ * Por defecto NO se incluyen posts ya expirados.
+ * Si querés verlos pasale ?includeExpired=true (no es lo usual).
+ */
+export async function getUrgentPosts(opts?: {
+  windowDays?: number;
+  includeExpired?: boolean;
+}) {
+  const windowDays = opts?.windowDays ?? 14;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStr = today.toISOString().split("T")[0];
 
-  const { data, error } = await supabase
+  const horizon = new Date(today);
+  horizon.setDate(horizon.getDate() + windowDays);
+  const horizonStr = horizon.toISOString().split("T")[0];
+
+  let query = supabase
     .from("posts")
-    .select("*")
-    .or(
-      `urgency_level.eq.high,offer_expiry_date.lte.${dateStr}`
-    )
-    .order("offer_expiry_date", { ascending: true });
+    .select("*, profile:profiles(*)");
+
+  if (opts?.includeExpired) {
+    // Solo filtra por urgencia o cualquier fecha <= horizonte (sin excluir pasadas)
+    query = query.or(`urgency_level.eq.high,offer_expiry_date.lte.${horizonStr}`);
+  } else {
+    // Próximos a expirar (entre hoy y hoy+window) o high-urgency sin fecha
+    query = query.or(
+      `and(offer_expiry_date.gte.${todayStr},offer_expiry_date.lte.${horizonStr}),` +
+        `and(offer_expiry_date.is.null,urgency_level.eq.high)`
+    );
+  }
+
+  const { data, error } = await query.order("offer_expiry_date", {
+    ascending: true,
+    nullsFirst: false,
+  });
 
   if (error) throw error;
   return (data || []) as Post[];

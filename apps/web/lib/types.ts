@@ -25,6 +25,8 @@ export interface Post {
   sentiment: string | null;
   engagement_score: number | null;
   created_at: string;
+  /** Profile joined desde el backend (opcional según endpoint). */
+  profile?: Profile | null;
 }
 
 export interface Profile {

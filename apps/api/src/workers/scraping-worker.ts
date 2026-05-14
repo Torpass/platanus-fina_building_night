@@ -82,14 +82,20 @@ export const scrapingWorker = new Worker(
         status: any;
         last_scraped_at: string;
         followers_count: number;
+        following_count: number;
+        full_name: string;
+        bio: string;
+        profile_pic_url: string;
       }> = {
         status: posts.length > 0 ? "analyzing" : "completed",
         last_scraped_at: new Date().toISOString(),
       };
 
-      if (profileInfo?.followersCount) {
-        profileUpdates.followers_count = profileInfo.followersCount;
-      }
+      if (profileInfo?.followersCount) profileUpdates.followers_count = profileInfo.followersCount;
+      if (profileInfo?.followingCount) profileUpdates.following_count = profileInfo.followingCount;
+      if (profileInfo?.fullName) profileUpdates.full_name = profileInfo.fullName;
+      if (profileInfo?.biography) profileUpdates.bio = profileInfo.biography;
+      if (profileInfo?.profilePicUrl) profileUpdates.profile_pic_url = profileInfo.profilePicUrl;
 
       await updateProfileStatus(profileId, profileUpdates.status!, profileUpdates);
 

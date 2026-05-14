@@ -22,10 +22,11 @@ router.get("/", async (req: Request, res: Response) => {
   }
 });
 
-// GET /posts/trending — top 20 por engagement_score
-router.get("/trending", async (_req: Request, res: Response) => {
+// GET /posts/trending — top por engagement_score (default 50, group-friendly)
+router.get("/trending", async (req: Request, res: Response) => {
   try {
-    const posts = await getTrendingPosts(20);
+    const limit = Math.min(parseInt((req.query.limit as string) || "50", 10) || 50, 200);
+    const posts = await getTrendingPosts(limit);
     res.json(posts);
   } catch (err: any) {
     console.error("Error getting trending posts:", err);
@@ -33,10 +34,17 @@ router.get("/trending", async (_req: Request, res: Response) => {
   }
 });
 
-// GET /posts/urgent — urgent posts
-router.get("/urgent", async (_req: Request, res: Response) => {
+// GET /posts/urgent — posts próximos a expirar (no incluye expirados por defecto)
+//   ?windowDays=14         ventana hacia adelante en días
+//   ?includeExpired=true   incluir los ya vencidos (debug)
+router.get("/urgent", async (req: Request, res: Response) => {
   try {
-    const posts = await getUrgentPosts();
+    const windowDays = Math.min(
+      parseInt((req.query.windowDays as string) || "14", 10) || 14,
+      90
+    );
+    const includeExpired = req.query.includeExpired === "true";
+    const posts = await getUrgentPosts({ windowDays, includeExpired });
     res.json(posts);
   } catch (err: any) {
     console.error("Error getting urgent posts:", err);

@@ -42,7 +42,18 @@ export default function PostsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold md:text-3xl">Posts</h1>
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-sky-600">
+          <FileText className="h-3.5 w-3.5" />
+          Posts analizados
+        </div>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">
+          Catálogo
+        </h1>
+        <p className="text-sm text-slate-500">
+          Filtrá por destino, experiencia o urgencia para encontrar oportunidades.
+        </p>
+      </div>
 
       <FiltersBar
         onFilterChange={setFilters}
@@ -58,23 +69,28 @@ export default function PostsPage() {
       )}
 
       {loading ? (
-        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="grid gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {Array.from({ length: 8 }).map((_, i) => (
-            <Skeleton key={i} className="h-80 w-full" />
+            <Skeleton key={i} className="h-[420px] w-full rounded-2xl" />
           ))}
         </div>
       ) : posts.length === 0 ? (
-        <div className="rounded-lg border bg-card p-12 text-center shadow-sm">
-          <FileText className="mx-auto h-10 w-10 text-muted-foreground mb-4" />
-          <h4 className="text-lg font-medium">Sin posts</h4>
-          <p className="text-sm text-muted-foreground mt-1">
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 p-12 text-center">
+          <FileText className="mx-auto h-10 w-10 text-slate-400 mb-4" />
+          <h4 className="text-base font-semibold text-slate-900">Sin posts</h4>
+          <p className="text-sm text-slate-500 mt-1">
             No se encontraron posts con los filtros seleccionados.
           </p>
         </div>
       ) : (
-        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {posts.map((post) => (
-            <PostCard key={post.id} post={post} />
+        <div className="grid gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {posts.map((post, i) => (
+            <PostCard
+              key={post.id}
+              post={post}
+              showAgency
+              delay={Math.min(i, 12) * 0.04}
+            />
           ))}
         </div>
       )}
