@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { apiGet, apiPost, deleteProfile as deleteProfileApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +22,13 @@ import {
   TableHead,
   TableCell,
 } from "@/components/ui/table";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -32,8 +40,13 @@ import {
   AlertCircle,
   Users,
   Trash2,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import type { Profile } from "@/lib/types";
+
+type SortBy = "handle" | "followers" | "last_scraped";
+type SortDir = "asc" | "desc";
 
 interface ScrapingJob {
   id: string;
@@ -79,6 +92,10 @@ export default function ProfilesPage() {
   const [scrapingIds, setScrapingIds] = useState<Set<string>>(new Set());
   const [deleteTarget, setDeleteTarget] = useState<Profile | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<SortBy>("last_scraped");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
   const intervalsRef = useRef<Record<string, number>>({});
 
   const fetchProfiles = useCallback(async () => {
@@ -148,6 +165,70 @@ export default function ProfilesPage() {
       intervalsRef.current = {};
     };
   }, [profiles]);
+
+  const filteredAndSorted = useMemo(() => {
+    let result = [...profiles];
+
+    if (search.trim()) {
+      const q = search.toLowerCase().trim();
+      result = result.filter(
+        (p) =>
+          p.instagram_handle.toLowerCase().includes(q) ||
+          (p.full_name?.toLowerCase().includes(q) ?? false)
+      );
+    }
+
+    if (statusFilter !== "all") {
+      result = result.filter((p) => p.status === statusFilter);
+    }
+
+    const dirMul = sortDir === "asc" ? 1 : -1;
+    result.sort((a, b) => {
+      if (sortBy === "handle") {
+        return (
+          a.instagram_handle.localeCompare(b.instagram_handle, "es", {
+            sensitivity: "base",
+          }) * dirMul
+        );
+      }
+      if (sortBy === "followers") {
+        return ((a.followers_count ?? 0) - (b.followers_count ?? 0)) * dirMul;
+      }
+      // last_scraped: nulls always last regardless of direction
+      const aT = a.last_scraped_at ? new Date(a.last_scraped_at).getTime() : null;
+      const bT = b.last_scraped_at ? new Date(b.last_scraped_at).getTime() : null;
+      if (aT === null && bT === null) return 0;
+      if (aT === null) return 1;
+      if (bT === null) return -1;
+      return (aT - bT) * dirMul;
+    });
+
+    return result;
+  }, [profiles, search, statusFilter, sortBy, sortDir]);
+
+  const toggleSort = (column: SortBy) => {
+    if (sortBy === column) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(column);
+      // Sensible defaults: text asc, numeric/date desc
+      setSortDir(column === "handle" ? "asc" : "desc");
+    }
+  };
+
+  const clearFilters = () => {
+    setSearch("");
+    setStatusFilter("all");
+  };
+
+  const SortIcon = ({ column }: { column: SortBy }) => {
+    if (sortBy !== column) return null;
+    return sortDir === "asc" ? (
+      <ArrowUp className="h-3 w-3" />
+    ) : (
+      <ArrowDown className="h-3 w-3" />
+    );
+  };
 
   const handleAddProfile = async () => {
     const handle = newHandle.trim().replace(/^@/, "");
@@ -260,6 +341,36 @@ export default function ProfilesPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Filters: hidden until profiles are loaded and there is at least one */}
+      {!loading && profiles.length > 0 && (
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por handle o nombre..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <div className="w-full sm:w-[200px]">
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Estado" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="pending">Pendiente</SelectItem>
+                <SelectItem value="scraping">Scrapeando</SelectItem>
+                <SelectItem value="analyzing">Analizando</SelectItem>
+                <SelectItem value="completed">Completado</SelectItem>
+                <SelectItem value="error">Error</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      )}
+
       <div className="rounded-lg border bg-card shadow-sm">
         {loading ? (
           <div className="p-4 space-y-3">
@@ -283,23 +394,79 @@ export default function ProfilesPage() {
               Agregar Perfil
             </Button>
           </div>
+        ) : filteredAndSorted.length === 0 ? (
+          <div className="flex flex-col items-center justify-center p-12 text-center">
+            <Search className="h-10 w-10 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-medium">Sin resultados</h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              No hay resultados para los filtros aplicados.
+            </p>
+            <Button
+              variant="outline"
+              className="mt-4"
+              onClick={clearFilters}
+            >
+              Limpiar filtros
+            </Button>
+          </div>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Handle</TableHead>
+                <TableHead
+                  onClick={() => toggleSort("handle")}
+                  className="cursor-pointer select-none hover:bg-muted/50"
+                >
+                  <span className="inline-flex items-center gap-1">
+                    Handle
+                    <SortIcon column="handle" />
+                  </span>
+                </TableHead>
                 <TableHead>Nombre</TableHead>
-                <TableHead>Seguidores</TableHead>
+                <TableHead
+                  onClick={() => toggleSort("followers")}
+                  className="cursor-pointer select-none hover:bg-muted/50"
+                >
+                  <span className="inline-flex items-center gap-1">
+                    Seguidores
+                    <SortIcon column="followers" />
+                  </span>
+                </TableHead>
                 <TableHead>Estado</TableHead>
-                <TableHead>Último análisis</TableHead>
+                <TableHead
+                  onClick={() => toggleSort("last_scraped")}
+                  className="cursor-pointer select-none hover:bg-muted/50"
+                >
+                  <span className="inline-flex items-center gap-1">
+                    Último análisis
+                    <SortIcon column="last_scraped" />
+                  </span>
+                </TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {profiles.map((profile) => (
+              {filteredAndSorted.map((profile) => (
                 <TableRow key={profile.id}>
                   <TableCell className="font-medium">
-                    @{profile.instagram_handle}
+                    <div className="flex items-center gap-3">
+                      {profile.profile_pic_url ? (
+                        <div className="relative h-9 w-9 flex-shrink-0">
+                          <Image
+                            src={profile.profile_pic_url}
+                            alt={profile.instagram_handle}
+                            width={36}
+                            height={36}
+                            className="h-9 w-9 rounded-full object-cover ring-1 ring-muted"
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-muted text-sm font-bold text-muted-foreground ring-1 ring-muted">
+                          {profile.instagram_handle[0]?.toUpperCase() ?? "?"}
+                        </div>
+                      )}
+                      <span>@{profile.instagram_handle}</span>
+                    </div>
                   </TableCell>
                   <TableCell>{profile.full_name || "—"}</TableCell>
                   <TableCell>
