@@ -43,6 +43,119 @@ export async function listProfiles() {
   return (data || []) as Profile[];
 }
 
+/**
+ * Self-healing list: for profiles stuck in "analyzing" or "scraping", inspect
+ * the latest scraping_job. If the job is already completed/failed and finished
+ * more than `staleAfterMs` ago, persist a corrected status and return the
+ * corrected rows. This recovers from cases where a worker died, a post failed
+ * analysis silently, or the completion signal never fired.
+ */
+export async function listProfilesWithSelfHeal(
+  staleAfterMs: number = 30_000
+): Promise<Profile[]> {
+  const profiles = await listProfiles();
+
+  const stuck = profiles.filter(
+    (p) => p.status === "analyzing" || p.status === "scraping"
+  );
+  if (stuck.length === 0) return profiles;
+
+  const now = Date.now();
+
+  // Fetch latest scraping_job per stuck profile in parallel
+  const correctionResults = await Promise.all(
+    stuck.map(async (profile) => {
+      try {
+        const { data: jobs, error: jobsErr } = await supabase
+          .from("scraping_jobs")
+          .select("*")
+          .eq("profile_id", profile.id)
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        if (jobsErr) {
+          console.error(
+            `[listProfilesWithSelfHeal] Failed to load latest job for profile ${profile.id}:`,
+            jobsErr
+          );
+          return null;
+        }
+
+        const latestJob = (jobs && jobs[0]) as ScrapingJob | undefined;
+        if (!latestJob) return null;
+
+        const isTerminal =
+          latestJob.status === "completed" || latestJob.status === "failed";
+        if (!isTerminal) return null;
+        if (!latestJob.completed_at) return null;
+
+        const completedAtMs = new Date(latestJob.completed_at).getTime();
+        if (Number.isNaN(completedAtMs)) return null;
+        if (now - completedAtMs < staleAfterMs) return null;
+
+        const newStatus: Profile["status"] =
+          latestJob.status === "completed" ? "completed" : "error";
+
+        const updates: Partial<Profile> = { status: newStatus };
+        if (newStatus === "error" && latestJob.error_message) {
+          updates.error_message = latestJob.error_message;
+        }
+
+        const updated = await updateProfileStatus(
+          profile.id,
+          newStatus,
+          updates
+        );
+        console.log(
+          `[listProfilesWithSelfHeal] Healed profile ${profile.id} (${profile.instagram_handle}): ${profile.status} -> ${newStatus}`
+        );
+        return { id: profile.id, updated };
+      } catch (err) {
+        console.error(
+          `[listProfilesWithSelfHeal] Error healing profile ${profile.id}:`,
+          err
+        );
+        return null;
+      }
+    })
+  );
+
+  const byId = new Map<string, Profile>();
+  for (const r of correctionResults) {
+    if (r && r.updated) byId.set(r.id, r.updated);
+  }
+
+  if (byId.size === 0) return profiles;
+
+  // Merge corrections into the original list, preserving order
+  return profiles.map((p) => byId.get(p.id) ?? p);
+}
+
+/**
+ * Update only profile metadata fields (full_name, followers_count,
+ * following_count, bio, profile_pic_url) plus updated_at. Does NOT touch
+ * `status` or `last_scraped_at` — those belong to the scraping flow.
+ */
+export async function updateProfileInfo(
+  id: string,
+  info: Partial<{
+    full_name: string;
+    followers_count: number;
+    following_count: number;
+    bio: string;
+    profile_pic_url: string;
+  }>
+) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .update({ ...info, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as Profile;
+}
+
 export async function updateProfileStatus(
   id: string,
   status: Profile["status"],

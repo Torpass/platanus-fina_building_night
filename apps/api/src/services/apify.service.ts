@@ -36,6 +36,69 @@ class ApifyService {
     this.baseUrl = APIFY_BASE_URL;
   }
 
+  /**
+   * Fetch ONLY Instagram profile metadata (no posts) via Apify's
+   * `resultsType: "details"` mode. Safe to call standalone — returns null on
+   * any error (logs a warning) instead of throwing, so callers can decide
+   * whether to fall back or surface a 502.
+   */
+  async fetchProfileDetails(
+    instagramHandle: string
+  ): Promise<ApifyProfileInfo | null> {
+    const cleanHandle = instagramHandle.replace(/^@/, "").trim();
+    try {
+      const detailsResp = await axios.post(
+        `${this.baseUrl}/acts/apify~instagram-scraper/run-sync-get-dataset-items`,
+        {
+          directUrls: [`https://www.instagram.com/${cleanHandle}/`],
+          resultsType: "details",
+          resultsLimit: 1,
+          proxyConfiguration: { useApifyProxy: true },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${this.token}`,
+            "Content-Type": "application/json",
+          },
+          timeout: 120000,
+          params: { clean: true, limit: 10 },
+        }
+      );
+      const profileItem = detailsResp.data?.[0];
+      if (!profileItem || profileItem.error) {
+        return null;
+      }
+      const profileInfo: ApifyProfileInfo = {
+        username: profileItem.username,
+        fullName: profileItem.fullName,
+        followersCount:
+          typeof profileItem.followersCount === "number"
+            ? profileItem.followersCount
+            : undefined,
+        followingCount:
+          typeof profileItem.followsCount === "number"
+            ? profileItem.followsCount
+            : typeof profileItem.followingCount === "number"
+              ? profileItem.followingCount
+              : undefined,
+        biography: profileItem.biography,
+        profilePicUrl:
+          profileItem.profilePicUrlHD || profileItem.profilePicUrl,
+      };
+      console.log(
+        `[ApifyService] Profile details fetched for @${cleanHandle}:`,
+        profileInfo
+      );
+      return profileInfo;
+    } catch (err: any) {
+      console.warn(
+        `[ApifyService] Failed to fetch profile details for @${cleanHandle}:`,
+        err?.message || err
+      );
+      return null;
+    }
+  }
+
   async scrapeProfile(
     instagramHandle: string,
     maxPosts = 50
@@ -44,12 +107,22 @@ class ApifyService {
 
     console.log(`[ApifyService] Starting scrape for @${cleanHandle}`);
 
-    // Build Apify input using standard proxyConfiguration format
+    // 1. Best-effort: fetch profile metadata (full_name, followers, bio, pic HD).
+    //    The standard actor under resultsType:"posts" does NOT return a
+    //    profile-info item, so this dedicated details call is the most
+    //    reliable source for follower count + HD profile picture.
+    const detailsResult = await this.fetchProfileDetails(cleanHandle);
+    let profileInfo: ApifyProfileInfo | undefined =
+      detailsResult ?? undefined;
+
+    // 2. Build Apify input for posts. addParentData enriches each post item
+    //    with owner.* fields so we have a fallback for profileInfo.
     const apifyInput = {
       directUrls: [`https://www.instagram.com/${cleanHandle}/`],
       resultsType: "posts",
       resultsLimit: maxPosts,
       includeReplies: false,
+      addParentData: true,
       proxyConfiguration: {
         useApifyProxy: true,
       },
@@ -93,19 +166,21 @@ class ApifyService {
 
     // Parse items
     const posts: ApifyPost[] = [];
-    let profileInfo: ApifyProfileInfo | undefined;
 
     for (const item of items) {
-      // Some versions of the actor include profile info as a separate item
+      // Some versions of the actor include profile info as a separate item.
+      // If we don't already have profileInfo from the details call, use it.
       if (item.username && !item.url) {
-        profileInfo = {
-          username: item.username,
-          followersCount: item.followersCount,
-          followingCount: item.followingCount,
-          fullName: item.fullName,
-          biography: item.biography,
-          profilePicUrl: item.profilePicUrl,
-        };
+        if (!profileInfo) {
+          profileInfo = {
+            username: item.username,
+            followersCount: item.followersCount,
+            followingCount: item.followingCount,
+            fullName: item.fullName,
+            biography: item.biography,
+            profilePicUrl: item.profilePicUrlHD || item.profilePicUrl,
+          };
+        }
         continue;
       }
 
@@ -125,6 +200,45 @@ class ApifyService {
       };
 
       posts.push(post);
+    }
+
+    // 3. Final fallback: if profileInfo is still missing, derive it from the
+    //    first post's owner-* fields (populated by addParentData:true).
+    if (!profileInfo && items.length > 0) {
+      const firstItem = items[0];
+      const fallback: ApifyProfileInfo = {
+        username: firstItem.ownerUsername || firstItem.owner?.username,
+        fullName: firstItem.ownerFullName || firstItem.owner?.fullName,
+        followersCount:
+          typeof firstItem.ownerFollowersCount === "number"
+            ? firstItem.ownerFollowersCount
+            : typeof firstItem.owner?.followersCount === "number"
+              ? firstItem.owner.followersCount
+              : undefined,
+        followingCount:
+          typeof firstItem.ownerFollowingCount === "number"
+            ? firstItem.ownerFollowingCount
+            : typeof firstItem.owner?.followingCount === "number"
+              ? firstItem.owner.followingCount
+              : undefined,
+        profilePicUrl:
+          firstItem.ownerProfilePicUrl ||
+          firstItem.owner?.profilePicUrl ||
+          firstItem.owner?.profilePicUrlHD,
+      };
+      // Only assign if we got at least one meaningful field
+      if (
+        fallback.username ||
+        fallback.fullName ||
+        fallback.profilePicUrl ||
+        fallback.followersCount !== undefined
+      ) {
+        profileInfo = fallback;
+        console.log(
+          `[ApifyService] profileInfo derived from first post owner fields for @${cleanHandle}:`,
+          profileInfo
+        );
+      }
     }
 
     return { posts, profileInfo };

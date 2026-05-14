@@ -1,21 +1,23 @@
 import { Router, Request, Response } from "express";
 import {
-  listProfiles,
+  listProfilesWithSelfHeal,
   createProfile,
   getProfileById,
   getProfileByHandle,
   createScrapingJob,
   getDashboardStats,
   deleteProfile,
+  updateProfileInfo,
 } from "../services/supabase.service";
 import { addScrapingJob } from "../queues/instagram-scraping";
+import { apifyService } from "../services/apify.service";
 
 const router: Router = Router();
 
 // GET /profiles — listar todos los perfiles
 router.get("/", async (_req: Request, res: Response) => {
   try {
-    const profiles = await listProfiles();
+    const profiles = await listProfilesWithSelfHeal();
     res.json(profiles);
   } catch (err: any) {
     console.error("Error listing profiles:", err);
@@ -128,6 +130,44 @@ router.post("/:id/scrape", async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error("Error triggering scrape:", err);
     res.status(500).json({ error: err.message || "Failed to trigger scrape" });
+  }
+});
+
+// POST /profiles/:id/refresh-info — only refresh profile metadata (no scraping/analysis)
+router.post("/:id/refresh-info", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const profile = await getProfileById(id);
+    if (!profile) {
+      res.status(404).json({ error: "Profile not found" });
+      return;
+    }
+
+    const info = await apifyService.fetchProfileDetails(profile.instagram_handle);
+    if (!info) {
+      res.status(502).json({ error: "Could not fetch profile details from Apify" });
+      return;
+    }
+
+    const updates: Record<string, unknown> = {};
+    if (info.fullName) updates.full_name = info.fullName;
+    if (info.followersCount !== undefined && info.followersCount !== null)
+      updates.followers_count = info.followersCount;
+    if (info.followingCount !== undefined && info.followingCount !== null)
+      updates.following_count = info.followingCount;
+    if (info.biography) updates.bio = info.biography;
+    if (info.profilePicUrl) updates.profile_pic_url = info.profilePicUrl;
+
+    if (Object.keys(updates).length === 0) {
+      res.json({ ok: true, updated: false, profile });
+      return;
+    }
+
+    const updated = await updateProfileInfo(id, updates);
+    res.json({ ok: true, updated: true, profile: updated });
+  } catch (err: any) {
+    console.error("Error refreshing profile info:", err);
+    res.status(500).json({ error: err.message || "Failed to refresh profile info" });
   }
 });
 

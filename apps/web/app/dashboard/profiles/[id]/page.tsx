@@ -29,6 +29,7 @@ import {
   FileText,
   Trash2,
   Sparkles,
+  UserCheck,
 } from "lucide-react";
 import type { Profile, Post } from "@/lib/types";
 
@@ -79,6 +80,7 @@ export default function ProfileDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reanalyzing, setReanalyzing] = useState(false);
+  const [refreshingInfo, setRefreshingInfo] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -109,6 +111,18 @@ export default function ProfileDetailPage() {
       setError(err.message || "Error reanalizando");
     } finally {
       setReanalyzing(false);
+    }
+  };
+
+  const handleRefreshInfo = async () => {
+    setRefreshingInfo(true);
+    try {
+      await apiPost(`/profiles/${id}/refresh-info`);
+      await fetchProfile();
+    } catch (err: any) {
+      setError(err.message || "Error actualizando info");
+    } finally {
+      setRefreshingInfo(false);
     }
   };
 
@@ -143,6 +157,20 @@ export default function ProfileDetailPage() {
         </div>
         {profile && (
           <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleRefreshInfo}
+              disabled={refreshingInfo}
+              title="Actualizar nombre, foto, seguidores y bio (sin reanalizar posts)"
+            >
+              {refreshingInfo ? (
+                <LoadingSpinner size="sm" className="mr-2" />
+              ) : (
+                <UserCheck className="mr-2 h-4 w-4" />
+              )}
+              Actualizar info
+            </Button>
             <Button
               size="sm"
               onClick={handleReanalyze}

@@ -41,6 +41,7 @@ export const scrapingWorker = new Worker(
       );
 
       // 4. Save posts and enqueue analysis jobs
+      let enqueuedCount = 0;
       for (const post of posts) {
         const savedPost = await upsertPost({
           profile_id: profileId,
@@ -74,10 +75,13 @@ export const scrapingWorker = new Worker(
             profileId,
             scrapingJobId,
           });
+          enqueuedCount++;
         }
       }
 
       // 5. Update profile
+      // NOTE: use !== undefined/null checks for numeric fields so that a real 0
+      // (e.g. brand-new account with 0 followers) is not skipped by truthy check.
       const profileUpdates: Partial<{
         status: any;
         last_scraped_at: string;
@@ -87,22 +91,40 @@ export const scrapingWorker = new Worker(
         bio: string;
         profile_pic_url: string;
       }> = {
-        status: posts.length > 0 ? "analyzing" : "completed",
+        // Only stay in "analyzing" if we actually queued analysis work.
+        // If posts arrived but all already had destinations (upsert hit),
+        // there is nothing to analyze → go straight to completed.
+        status: enqueuedCount > 0 ? "analyzing" : "completed",
         last_scraped_at: new Date().toISOString(),
       };
 
-      if (profileInfo?.followersCount) profileUpdates.followers_count = profileInfo.followersCount;
-      if (profileInfo?.followingCount) profileUpdates.following_count = profileInfo.followingCount;
+      if (
+        profileInfo?.followersCount !== undefined &&
+        profileInfo?.followersCount !== null
+      ) {
+        profileUpdates.followers_count = profileInfo.followersCount;
+      }
+      if (
+        profileInfo?.followingCount !== undefined &&
+        profileInfo?.followingCount !== null
+      ) {
+        profileUpdates.following_count = profileInfo.followingCount;
+      }
       if (profileInfo?.fullName) profileUpdates.full_name = profileInfo.fullName;
       if (profileInfo?.biography) profileUpdates.bio = profileInfo.biography;
       if (profileInfo?.profilePicUrl) profileUpdates.profile_pic_url = profileInfo.profilePicUrl;
 
       await updateProfileStatus(profileId, profileUpdates.status!, profileUpdates);
 
-      // 6. Update scraping_job to completed
+      // 6. Update scraping_job to completed.
+      // total_posts MUST reflect the number of analysis jobs we actually
+      // enqueued, because that is what processed_posts will be compared to
+      // by the analysis-worker self-heal logic. If we set total_posts to
+      // posts.length but only enqueued enqueuedCount, the profile would
+      // stay on "analyzing" forever.
       await updateScrapingJob(scrapingJobId, {
         status: "completed",
-        total_posts: posts.length,
+        total_posts: enqueuedCount,
         completed_at: new Date().toISOString(),
       });
 

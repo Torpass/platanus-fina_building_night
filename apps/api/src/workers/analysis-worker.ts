@@ -33,11 +33,64 @@ Extrae y devuelve SOLO un JSON con este formato exacto:
 Detecta urgencia analizando frases como "últimos cupos", "hasta el 15", "termina pronto".
 El sentimiento debe analizar el tono general de los comentarios (si se proporcionan).`;
 
+/**
+ * Increment processed_posts for the scraping_job and, if the profile has
+ * finished processing (success OR failure), mark the profile as completed.
+ *
+ * This is called in BOTH the success and failure paths so a single bad post
+ * (Gemini quota, broken image, timeout, etc.) does not leave the profile
+ * stuck on "analyzing" forever.
+ */
+async function markPostProcessed(
+  scrapingJobId: string,
+  profileId: string
+): Promise<void> {
+  try {
+    const scrapingJob = await getScrapingJobById(scrapingJobId);
+    const newProcessed = (scrapingJob.processed_posts || 0) + 1;
+    await updateScrapingJob(scrapingJobId, {
+      processed_posts: newProcessed,
+    });
+
+    // Primary signal: job-level counter reached total_posts
+    const reachedTotal =
+      typeof scrapingJob.total_posts === "number" &&
+      scrapingJob.total_posts !== null &&
+      newProcessed >= scrapingJob.total_posts;
+
+    if (reachedTotal) {
+      await updateProfileStatus(profileId, "completed");
+      console.log(
+        `[AnalysisWorker] processed_posts (${newProcessed}) reached total_posts (${scrapingJob.total_posts}) for profile ${profileId}. Status set to completed.`
+      );
+      return;
+    }
+
+    // Secondary signal (happy path): no posts with destination=NULL remaining.
+    // This still works when every post analysis succeeded.
+    const unanalyzedCount = await countUnanalyzedPostsByProfile(profileId);
+    if (unanalyzedCount === 0) {
+      await updateProfileStatus(profileId, "completed");
+      console.log(
+        `[AnalysisWorker] All posts analyzed for profile ${profileId} (no unanalyzed remaining). Status set to completed.`
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[AnalysisWorker] Failed to mark post processed for profile ${profileId}:`,
+      err
+    );
+  }
+}
+
 export const analysisWorker = new Worker(
   "instagram-analysis",
   async (job) => {
     const { postId, imageUrl, caption, comments, profileId, scrapingJobId } = job.data;
     console.log(`[AnalysisWorker] Starting job ${job.id} for post ${postId}`);
+
+    let didThrow = false;
+    let thrownErr: any;
 
     try {
       // 1. Verify post exists
@@ -69,25 +122,10 @@ export const analysisWorker = new Worker(
       });
 
       console.log(`[AnalysisWorker] Saved analysis for post ${postId}`);
-
-      // 4. Update scraping_job processed_posts
-      const scrapingJob = await getScrapingJobById(scrapingJobId);
-      const newProcessed = (scrapingJob.processed_posts || 0) + 1;
-      await updateScrapingJob(scrapingJobId, {
-        processed_posts: newProcessed,
-      });
-
-      // 5. Check if all posts for this profile are analyzed
-      const unanalyzedCount = await countUnanalyzedPostsByProfile(profileId);
-      if (unanalyzedCount === 0) {
-        await updateProfileStatus(profileId, "completed");
-        console.log(
-          `[AnalysisWorker] All posts analyzed for profile ${profileId}. Status set to completed.`
-        );
-      }
-
       console.log(`[AnalysisWorker] Completed job ${job.id}`);
     } catch (err: any) {
+      didThrow = true;
+      thrownErr = err;
       console.error(`[AnalysisWorker] Error in job ${job.id}:`, err);
 
       // Mark scraping job as having an error but don't fail the whole job
@@ -99,8 +137,15 @@ export const analysisWorker = new Worker(
       } catch (updateErr) {
         console.error("[AnalysisWorker] Failed to update scraping job error:", updateErr);
       }
+    } finally {
+      // ALWAYS count this post as processed — success or failure.
+      // Without this, a single failed analysis (e.g. Gemini quota error) leaves
+      // the profile stuck on "analyzing" forever because destination stays NULL.
+      await markPostProcessed(scrapingJobId, profileId);
+    }
 
-      throw err;
+    if (didThrow) {
+      throw thrownErr;
     }
   },
   { connection: redisConnection }
