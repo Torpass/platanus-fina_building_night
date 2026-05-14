@@ -2,6 +2,9 @@
   "name": "instagram-scraper-mvp",
   "private": true,
   "packageManager": "pnpm@8.15.0",
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
