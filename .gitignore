@@ -35,3 +35,18 @@ Thumbs.db
 
 # Misc
 *.pem
+
+# Monorepo / Turbo
+.turbo/
+
+# Docker
+.dockerignore
+
+# Testing
+coverage/
+.nyc_output/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
