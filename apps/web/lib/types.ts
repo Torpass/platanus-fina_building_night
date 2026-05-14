@@ -23,6 +23,10 @@ export interface Post {
   keywords: string[] | null;
   summary: string | null;
   sentiment: string | null;
+  /** JSON crudo retornado por el proveedor de IA (Gemini / GPT-4o). */
+  raw_ai_analysis: Record<string, unknown> | null;
+  /** Comentarios capturados del scraping (para análisis de sentimiento). */
+  comments_content: string[] | null;
   engagement_score: number | null;
   created_at: string;
   /** Profile joined desde el backend (opcional según endpoint). */

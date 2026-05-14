@@ -2,14 +2,23 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, deleteProfile as deleteProfileApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   ArrowLeft,
   RefreshCw,
@@ -18,6 +27,8 @@ import {
   MapPin,
   AlertCircle,
   FileText,
+  Trash2,
+  Sparkles,
 } from "lucide-react";
 import type { Profile, Post } from "@/lib/types";
 
@@ -68,6 +79,8 @@ export default function ProfileDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reanalyzing, setReanalyzing] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchProfile = async () => {
     try {
@@ -99,6 +112,18 @@ export default function ProfileDetailPage() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!profile) return;
+    setDeleting(true);
+    try {
+      await deleteProfileApi(profile.id);
+      router.push("/dashboard/profiles");
+    } catch (err: any) {
+      setError(err.message || "Error eliminando perfil");
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -117,18 +142,30 @@ export default function ProfileDetailPage() {
           )}
         </div>
         {profile && (
-          <Button
-            size="sm"
-            onClick={handleReanalyze}
-            disabled={reanalyzing || profile.status === "scraping" || profile.status === "analyzing"}
-          >
-            {reanalyzing ? (
-              <LoadingSpinner size="sm" className="mr-2" />
-            ) : (
-              <RefreshCw className="mr-2 h-4 w-4" />
-            )}
-            Reanalizar
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              onClick={handleReanalyze}
+              disabled={reanalyzing || profile.status === "scraping" || profile.status === "analyzing"}
+            >
+              {reanalyzing ? (
+                <LoadingSpinner size="sm" className="mr-2" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              Reanalizar
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setDeleteOpen(true)}
+              className="border-rose-200 text-rose-700 hover:bg-rose-50"
+              title="Eliminar perfil y posts"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Eliminar
+            </Button>
+          </div>
         )}
       </div>
 
@@ -225,66 +262,125 @@ export default function ProfileDetailPage() {
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {posts.map((post) => (
-                  <Card key={post.id} className="overflow-hidden">
-                    {post.image_url && (
-                      <div className="aspect-square bg-muted relative">
-                        <Image
-                          src={post.image_url}
-                          alt={post.caption || "Post"}
-                          fill
-                          className="object-cover"
-                        />
-                      </div>
-                    )}
-                    <CardContent className="space-y-3 p-4">
-                      <p className="line-clamp-2 text-sm">
-                        {post.caption || "Sin caption"}
-                      </p>
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <Heart className="h-3.5 w-3.5" />
-                          {formatNumber(post.likes_count)}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <MessageCircle className="h-3.5 w-3.5" />
-                          {formatNumber(post.comments_count)}
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {post.destination && (
-                          <Badge variant="secondary" className="flex items-center gap-1 text-xs">
-                            <MapPin className="h-3 w-3" />
-                            {post.destination}
-                          </Badge>
-                        )}
-                        {post.experience_type && (
-                          <Badge className={`text-xs ${experienceColor(post.experience_type)}`}>
-                            {post.experience_type}
-                          </Badge>
-                        )}
-                        {post.urgency_level && (
-                          <Badge variant={urgencyColor(post.urgency_level)} className="text-xs">
-                            {post.urgency_level === "high"
-                              ? "Urgente"
-                              : post.urgency_level === "medium"
-                              ? "Medio"
-                              : "Bajo"}
-                          </Badge>
-                        )}
-                        {post.engagement_score !== null && (
-                          <Badge variant="outline" className="text-xs">
-                            Engagement {post.engagement_score.toFixed(1)}
-                          </Badge>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <Link
+                    key={post.id}
+                    href={`/dashboard/posts/${post.id}`}
+                    className="group block"
+                  >
+                    <Card className="h-full overflow-hidden transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg">
+                      {post.image_url && (
+                        <div className="aspect-square bg-muted relative overflow-hidden">
+                          <Image
+                            src={post.image_url}
+                            alt={post.caption || "Post"}
+                            fill
+                            className="object-cover transition-transform duration-500 group-hover:scale-105"
+                          />
+                          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+                          <div className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-0.5 text-[11px] font-semibold text-fuchsia-700 opacity-0 shadow-sm backdrop-blur transition-opacity duration-300 group-hover:opacity-100">
+                            <Sparkles className="h-3 w-3" />
+                            Ver análisis
+                          </div>
+                        </div>
+                      )}
+                      <CardContent className="space-y-3 p-4">
+                        <p className="line-clamp-2 text-sm">
+                          {post.caption || "Sin caption"}
+                        </p>
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <Heart className="h-3.5 w-3.5" />
+                            {formatNumber(post.likes_count)}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <MessageCircle className="h-3.5 w-3.5" />
+                            {formatNumber(post.comments_count)}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {post.destination && (
+                            <Badge variant="secondary" className="flex items-center gap-1 text-xs">
+                              <MapPin className="h-3 w-3" />
+                              {post.destination}
+                            </Badge>
+                          )}
+                          {post.experience_type && (
+                            <Badge className={`text-xs ${experienceColor(post.experience_type)}`}>
+                              {post.experience_type}
+                            </Badge>
+                          )}
+                          {post.urgency_level && (
+                            <Badge variant={urgencyColor(post.urgency_level)} className="text-xs">
+                              {post.urgency_level === "high"
+                                ? "Urgente"
+                                : post.urgency_level === "medium"
+                                ? "Medio"
+                                : "Bajo"}
+                            </Badge>
+                          )}
+                          {post.engagement_score !== null && (
+                            <Badge variant="outline" className="text-xs">
+                              Engagement {post.engagement_score.toFixed(1)}
+                            </Badge>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
                 ))}
               </div>
             )}
           </div>
         </>
       ) : null}
+
+      {/* Delete confirmation dialog */}
+      <Dialog
+        open={deleteOpen}
+        onOpenChange={(open) => !deleting && setDeleteOpen(open)}
+      >
+        <DialogContent onClose={() => !deleting && setDeleteOpen(false)}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-rose-700">
+              <Trash2 className="h-5 w-5" />
+              Eliminar perfil
+            </DialogTitle>
+            <DialogDescription>
+              ¿Estás seguro de que querés eliminar el perfil{" "}
+              <span className="font-semibold text-slate-900">
+                @{profile?.instagram_handle}
+              </span>
+              ?<br />
+              Se eliminarán también{" "}
+              <span className="font-semibold text-slate-900">
+                {posts.length} {posts.length === 1 ? "post" : "posts"}
+              </span>{" "}
+              y todos sus análisis. Esta acción no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteOpen(false)}
+              disabled={deleting}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="bg-rose-600 text-white hover:bg-rose-700"
+            >
+              {deleting ? (
+                <LoadingSpinner size="sm" className="mr-2" />
+              ) : (
+                <Trash2 className="mr-2 h-4 w-4" />
+              )}
+              Eliminar definitivamente
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

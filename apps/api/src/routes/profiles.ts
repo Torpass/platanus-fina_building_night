@@ -6,6 +6,7 @@ import {
   getProfileByHandle,
   createScrapingJob,
   getDashboardStats,
+  deleteProfile,
 } from "../services/supabase.service";
 import { addScrapingJob } from "../queues/instagram-scraping";
 
@@ -72,6 +73,23 @@ router.get("/:id", async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error("Error getting profile:", err);
     res.status(500).json({ error: err.message || "Failed to get profile" });
+  }
+});
+
+// DELETE /profiles/:id — eliminar perfil + posts (cascade)
+router.delete("/:id", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const profile = await getProfileById(id);
+    if (!profile) {
+      res.status(404).json({ error: "Profile not found" });
+      return;
+    }
+    await deleteProfile(id);
+    res.json({ ok: true, id });
+  } catch (err: any) {
+    console.error("Error deleting profile:", err);
+    res.status(500).json({ error: err.message || "Failed to delete profile" });
   }
 });
 

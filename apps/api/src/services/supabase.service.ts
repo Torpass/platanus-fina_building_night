@@ -210,11 +210,18 @@ export async function getUrgentPosts(opts?: {
 export async function getPostById(id: string) {
   const { data, error } = await supabase
     .from("posts")
-    .select("*")
+    .select("*, profile:profiles(*)")
     .eq("id", id)
     .single();
   if (error) throw error;
   return data as Post;
+}
+
+export async function deleteProfile(id: string) {
+  // Posts y scraping_jobs caen por ON DELETE CASCADE en la FK.
+  const { error } = await supabase.from("profiles").delete().eq("id", id);
+  if (error) throw error;
+  return { ok: true };
 }
 
 export async function getScrapingJobById(id: string) {

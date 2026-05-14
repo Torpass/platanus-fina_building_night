@@ -11,6 +11,7 @@ import {
   Clock,
   Tag,
   TrendingUp,
+  Sparkles,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { Post } from "@/lib/types";
@@ -296,15 +297,24 @@ export function PostCard({
             </Link>
           </div>
 
-          <a
-            href={getInstagramUrl(post.instagram_post_id)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="group/btn inline-flex items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-fuchsia-500 via-rose-500 to-orange-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-rose-500/20 transition-transform hover:scale-[1.02]"
-          >
-            Ver en Instagram
-            <ExternalLink className="h-3 w-3 transition-transform group-hover/btn:translate-x-0.5" />
-          </a>
+          <div className="grid grid-cols-2 gap-1.5">
+            <Link
+              href={`/dashboard/posts/${post.id}`}
+              className="group/btn inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900"
+            >
+              <Sparkles className="h-3 w-3 text-fuchsia-500" />
+              Análisis
+            </Link>
+            <a
+              href={getInstagramUrl(post.instagram_post_id)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group/btn inline-flex items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-fuchsia-500 via-rose-500 to-orange-500 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm shadow-rose-500/20 transition-transform hover:scale-[1.02]"
+            >
+              Instagram
+              <ExternalLink className="h-3 w-3 transition-transform group-hover/btn:translate-x-0.5" />
+            </a>
+          </div>
         </div>
       </div>
     </motion.article>

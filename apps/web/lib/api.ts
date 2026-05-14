@@ -16,6 +16,32 @@ export async function apiPost<T = any>(path: string, body?: any): Promise<T> {
   return res.json();
 }
 
+export async function apiDelete<T = any>(path: string): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, { method: "DELETE" });
+  if (!res.ok) {
+    let msg = `Failed to delete ${path}`;
+    try {
+      const data = await res.json();
+      if (data?.error) msg = data.error;
+    } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+export async function fetchPost(id: string) {
+  const res = await fetch(`${API_BASE}/posts/${id}`);
+  if (!res.ok) {
+    if (res.status === 404) throw new Error("Post no encontrado");
+    throw new Error("Failed to fetch post");
+  }
+  return res.json();
+}
+
+export async function deleteProfile(id: string) {
+  return apiDelete(`/profiles/${id}`);
+}
+
 export async function fetchProfiles() {
   const res = await fetch(`${API_BASE}/profiles`);
   if (!res.ok) throw new Error("Failed to fetch profiles");

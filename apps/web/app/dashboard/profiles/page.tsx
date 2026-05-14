@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, deleteProfile as deleteProfileApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -31,6 +31,7 @@ import {
   Eye,
   AlertCircle,
   Users,
+  Trash2,
 } from "lucide-react";
 import type { Profile } from "@/lib/types";
 
@@ -76,6 +77,8 @@ export default function ProfilesPage() {
   const [newHandle, setNewHandle] = useState("");
   const [saving, setSaving] = useState(false);
   const [scrapingIds, setScrapingIds] = useState<Set<string>>(new Set());
+  const [deleteTarget, setDeleteTarget] = useState<Profile | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const intervalsRef = useRef<Record<string, number>>({});
 
   const fetchProfiles = useCallback(async () => {
@@ -180,6 +183,25 @@ export default function ProfilesPage() {
 
   const canScrape = (status: Profile["status"]) =>
     status === "pending" || status === "completed" || status === "error";
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      // Stop any polling for this profile before removing it
+      if (intervalsRef.current[deleteTarget.id]) {
+        window.clearInterval(intervalsRef.current[deleteTarget.id]);
+        delete intervalsRef.current[deleteTarget.id];
+      }
+      await deleteProfileApi(deleteTarget.id);
+      setProfiles((prev) => prev.filter((p) => p.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (err: any) {
+      setError(err.message || "Error eliminando perfil");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -328,8 +350,18 @@ export default function ProfilesPage() {
                         onClick={() =>
                           router.push(`/dashboard/profiles/${profile.id}`)
                         }
+                        title="Ver detalle"
                       >
                         <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setDeleteTarget(profile)}
+                        title="Eliminar perfil y sus posts"
+                        className="text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                      >
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
                   </TableCell>
@@ -339,6 +371,51 @@ export default function ProfilesPage() {
           </Table>
         )}
       </div>
+
+      {/* Delete confirmation dialog */}
+      <Dialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}
+      >
+        <DialogContent onClose={() => !deleting && setDeleteTarget(null)}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-rose-700">
+              <Trash2 className="h-5 w-5" />
+              Eliminar perfil
+            </DialogTitle>
+            <DialogDescription>
+              ¿Estás seguro de que querés eliminar el perfil{" "}
+              <span className="font-semibold text-slate-900">
+                @{deleteTarget?.instagram_handle}
+              </span>
+              ?<br />
+              Esta acción borra el perfil <strong>y todos sus posts
+              analizados</strong>. No se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+              disabled={deleting}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="bg-rose-600 text-white hover:bg-rose-700"
+            >
+              {deleting ? (
+                <LoadingSpinner size="sm" className="mr-2" />
+              ) : (
+                <Trash2 className="mr-2 h-4 w-4" />
+              )}
+              Eliminar definitivamente
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

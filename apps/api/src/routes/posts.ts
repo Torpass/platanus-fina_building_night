@@ -1,5 +1,10 @@
 import { Router, Request, Response } from "express";
-import { listPosts, getTrendingPosts, getUrgentPosts } from "../services/supabase.service";
+import {
+  listPosts,
+  getTrendingPosts,
+  getUrgentPosts,
+  getPostById,
+} from "../services/supabase.service";
 
 const router: Router = Router();
 
@@ -49,6 +54,25 @@ router.get("/urgent", async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error("Error getting urgent posts:", err);
     res.status(500).json({ error: err.message || "Failed to get urgent posts" });
+  }
+});
+
+// GET /posts/:id — detalle de un post con análisis completo (incluye raw_ai_analysis)
+router.get("/:id", async (req: Request, res: Response) => {
+  try {
+    const post = await getPostById(req.params.id);
+    if (!post) {
+      res.status(404).json({ error: "Post not found" });
+      return;
+    }
+    res.json(post);
+  } catch (err: any) {
+    console.error("Error getting post:", err);
+    if (err.code === "PGRST116") {
+      res.status(404).json({ error: "Post not found" });
+      return;
+    }
+    res.status(500).json({ error: err.message || "Failed to get post" });
   }
 });
 
